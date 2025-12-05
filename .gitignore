@@ -3,4 +3,9 @@
 .DS_Store
 .claude
 .gradio
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
 sweep2E_dualarm_v1/
