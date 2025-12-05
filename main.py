@@ -368,9 +368,10 @@ def delete_segment(segments_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[pd.Da
         return segments_df, f"✗ Error: {str(e)}"
 
 
+# TODO:
 # Build Gradio UI
-with gr.Blocks(title="Trajectory Annotation Tool") as demo:
-    gr.Markdown("# Trajectory Annotation Tool for Bimanual Manipulation Data")
+with gr.Blocks(title="Sweep Annotator") as demo:
+    gr.Markdown("# Sweep Annotator")
 
     with gr.Row():
         dataset_path_input = gr.Textbox(label="Dataset Path", placeholder="/path/to/lerobot/dataset", scale=3)
@@ -379,46 +380,39 @@ with gr.Blocks(title="Trajectory Annotation Tool") as demo:
     dataset_status = gr.Textbox(label="Status", interactive=False)
 
     with gr.Row():
-        episode_dropdown = gr.Dropdown(label="Episode", choices=[], interactive=True, scale=2)
-        frame_slider = gr.Slider(minimum=0, maximum=1000, step=1, label="Frame", scale=3)
+        episode_dropdown = gr.Dropdown(label="Episode", choices=[], interactive=True, scale=1)
+        frame_slider = gr.Slider(minimum=0, maximum=10000, step=1, label="Frame", scale=4)
 
     with gr.Row():
         with gr.Column():
-            original_video_display = gr.Image(label="Original View", type="numpy", interactive=True)
+            original_video_display = gr.Image(label="Original View (Click to calibrate)", type="numpy", interactive=True) # 可以添加参数 height=400 调整高度，但图片不会自动缩放
         with gr.Column():
             corrected_video_display = gr.Image(label="Corrected View (Click to annotate)", type="numpy", interactive=True)
 
     frame_status = gr.Textbox(label="Frame Info", interactive=False)
 
-    gr.Markdown("## Perspective Correction")
-    with gr.Row():
-        calibration_mode_btn = gr.Button("Set Calibration Points")
-        load_calibration_btn = gr.Button("Load Calibration")
-        save_calibration_btn = gr.Button("Save Calibration")
-
-    calibration_status = gr.Textbox(label="Calibration Status", interactive=False)
-
     gr.Markdown("## Segmentation & Annotation")
-
-    primitive_type_dropdown = gr.Dropdown(
-        label="Primitive Type",
-        choices=["Sweep Box", "Sweep Triangle", "Clear Box", "Refine Line", "Refine Arc"],
-        value="Sweep Box"
-    )
+    
+    with gr.Row():
+        primitive_type_dropdown = gr.Dropdown(
+            label="Primitive Type",
+            choices=["Sweep Box", "Sweep Triangle", "Clear Box", "Refine Line", "Refine Arc"],
+            value="Sweep Box",
+            scale=1
+        )
+        annotation_status = gr.Textbox(label="Annotation Status", interactive=False, scale=1)
+        coordinates_display = gr.Textbox(label="Captured Coordinates", interactive=False, scale=1)
 
     with gr.Row():
         start_frame_btn = gr.Button("Mark Start Frame", variant="primary")
         overlap_frames_input = gr.Number(label="Overlap Frames", value=0, precision=0)
-        end_frame_btn = gr.Button("Mark End & Save Segment", variant="primary")
-
-    annotation_status = gr.Textbox(label="Annotation Status", interactive=False)
-    coordinates_display = gr.Textbox(label="Captured Coordinates", interactive=False)
+        end_frame_btn = gr.Button("Mark End Frame & Save Segment", variant="primary")
 
     with gr.Row():
         reset_points_btn = gr.Button("Reset Points")
         undo_point_btn = gr.Button("Undo Last Point")
 
-    gr.Markdown("## Segment List")
+    gr.Markdown("## Segment List (Click to delete)")
     segments_dataframe = gr.Dataframe(
         headers=["Episode", "Start Frame", "End Frame", "Primitive", "String"],
         datatype=["number", "number", "number", "str", "str"],
@@ -426,6 +420,14 @@ with gr.Blocks(title="Trajectory Annotation Tool") as demo:
     )
 
     delete_segment_status = gr.Textbox(label="Delete Status", interactive=False)
+    
+    gr.Markdown("## Perspective Correction")
+    with gr.Row():
+        calibration_mode_btn = gr.Button("Set Calibration Points")
+        load_calibration_btn = gr.Button("Load Calibration")
+        save_calibration_btn = gr.Button("Save Calibration")
+
+    calibration_status = gr.Textbox(label="Calibration Status", interactive=False)
 
     gr.Markdown("## Export")
     with gr.Row():
