@@ -36,7 +36,16 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The GUI will be available at `http://localhost:7860`.
+By default, the GUI will be available at `http://localhost:7860`.
+
+You can customize the Gradio server using the following command line arguments:
+
+- `--share`  
+  Enable public sharing link (Gradio will provide a public URL).
+- `--server`  
+  Specify the server IP or hostname (default: `0.0.0.0`).
+- `--port`  
+  Specify the port to run the Gradio app on (default: `7860`).
 
 ## Dataset Format
 

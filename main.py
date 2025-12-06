@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import json
+import argparse
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -687,4 +688,12 @@ with gr.Blocks(title="Sweep Annotator") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(share=False, server_name="0.0.0.0", server_port=7860)
+    parser = argparse.ArgumentParser(description="Sweep Annotator Gradio App")
+    
+    parser.add_argument("--share", action="store_true", default=False, help="Enable Gradio public sharing link")
+    parser.add_argument("--server", type=str, default="0.0.0.0", help="Server name or IP to run the Gradio app on")
+    parser.add_argument("--port", type=int, default=7860, help="Port to run the Gradio app on")
+    
+    args = parser.parse_args()
+    
+    demo.launch(share=args.share, server_name=args.server, server_port=args.port)
