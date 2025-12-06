@@ -185,19 +185,34 @@ Example:
 
 #### Segment List Table
 
-The segment list shows all annotated segments across all episodes:
+The segment list shows all annotated segments across all episodes with a numbered index:
 
-| Episode | Start Frame | End Frame | Primitive | String |
-|---------|-------------|-----------|-----------|--------|
-| 0 | 10 | 50 | sweep_box | \<Sweep\> \<Box\> ... |
-| 0 | 45 | 80 | clear_box | \<Clear\> \<Box\> ... |
+| Index | Episode | Start Frame | End Frame | Primitive | String |
+|-------|---------|-------------|-----------|-----------|--------|
+| 1 | 0 | 10 | 50 | sweep_box | \<Sweep\> \<Box\> ... |
+| 2 | 0 | 45 | 80 | clear_box | \<Clear\> \<Box\> ... |
+| 3 | 1 | 0 | 30 | refine_line | \<Refine\> \<Line\> ... |
 
 #### Deleting Segments
 
-**WARNING**: Clicking on any row in the segment list will DELETE that segment!
+To delete one or more segments, use the deletion interface below the segment list:
 
-- Click any row to delete it
-- This action cannot be undone (unless you reload saved annotations)
+1. **Enter Indices**: In the "Indices to Delete" text box, type the indices of segments you want to delete
+   - Single index: `2` (deletes segment at index 2)
+   - Multiple indices: `2, 3, 5` (deletes segments at indices 2, 3, and 5)
+   - Range: `4-6` (deletes segments at indices 4, 5, and 6)
+   - Combined: `2, 4-6, 8` (deletes segments at indices 2, 4, 5, 6, and 8)
+
+2. **Click Delete Button**: Press the "Delete" button to remove the specified segments
+
+3. **Confirmation**: The "Delete Status" field shows how many segments were deleted and how many remain
+
+**Examples:**
+- Delete segment 2: Enter `2` and click Delete
+- Delete segments 3, 4, 5: Enter `3-5` and click Delete
+- Delete segments 1, 3, and 7 through 10: Enter `1, 3, 7-10` and click Delete
+
+**Note**: This action cannot be undone unless you reload saved annotations.
 
 ### 5. Interrupt and Resume
 
@@ -307,8 +322,8 @@ The interface provides real-time information:
 
 **Segment List**:
 - Real-time updates as segments are added
-- Shows all episodes and their segments
-- Click to delete (be careful!)
+- Shows all episodes and their segments with index numbers
+- Use the deletion interface below the table to remove segments
 
 ## Tips and Best Practices
 
@@ -324,7 +339,7 @@ The interface provides real-time information:
 
 6. **Visual Verification**: After clicking points, verify the visualization matches your intent
 
-7. **Segment Deletion**: Be careful when clicking the segment list table - it deletes immediately!
+7. **Segment Deletion**: Use the index-based deletion interface to safely remove multiple segments at once
 
 ## Troubleshooting
 

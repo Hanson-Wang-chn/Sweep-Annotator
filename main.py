@@ -258,8 +258,9 @@ def end_annotation(frame_idx: int, overlap_frames: int) -> Tuple[pd.DataFrame, s
 
         # Update segments dataframe
         segments_data = []
-        for seg in app.all_segments:
+        for idx, seg in enumerate(app.all_segments):
             segments_data.append({
+                "Index": idx + 1,
                 "Episode": seg.episode_id,
                 "Start Frame": seg.start_frame,
                 "End Frame": seg.end_frame,
@@ -371,8 +372,9 @@ def load_annotations(dataset_path: str) -> Tuple[pd.DataFrame, str]:
 
         # Update segments dataframe
         segments_data = []
-        for seg in app.all_segments:
+        for idx, seg in enumerate(app.all_segments):
             segments_data.append({
+                "Index": idx + 1,
                 "Episode": seg.episode_id,
                 "Start Frame": seg.start_frame,
                 "End Frame": seg.end_frame,
@@ -416,35 +418,96 @@ def export_dataset(output_path: str) -> str:
         return f"✗ Error exporting dataset: {str(e)}"
 
 
-def delete_segment(segments_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[pd.DataFrame, str]:
-    """Delete selected segment."""
-    if evt is None or segments_df is None or len(segments_df) == 0:
-        return segments_df, "No segment selected"
+def parse_indices(indices_str: str) -> List[int]:
+    """Parse indices string like '2, 3, 4-6, 7-10' into list of indices.
+
+    Args:
+        indices_str: String containing comma-separated indices and ranges
+
+    Returns:
+        List of integer indices (0-indexed for array access)
+    """
+    if not indices_str or not indices_str.strip():
+        return []
+
+    indices = []
+    parts = indices_str.split(',')
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        if '-' in part:
+            # Handle range like "4-6"
+            try:
+                start, end = part.split('-')
+                start_idx = int(start.strip())
+                end_idx = int(end.strip())
+
+                # Convert from 1-indexed (user) to 0-indexed (array)
+                # and add all indices in range
+                for i in range(start_idx - 1, end_idx):
+                    indices.append(i)
+            except ValueError:
+                continue
+        else:
+            # Handle single index
+            try:
+                idx = int(part.strip())
+                # Convert from 1-indexed (user) to 0-indexed (array)
+                indices.append(idx - 1)
+            except ValueError:
+                continue
+
+    return sorted(set(indices))  # Remove duplicates and sort
+
+
+def delete_segments_by_indices(indices_str: str) -> Tuple[pd.DataFrame, str]:
+    """Delete segments by indices specified in the input string."""
+    if not indices_str or not indices_str.strip():
+        return None, "✗ Please enter indices to delete"
+
+    if not app.all_segments:
+        return None, "✗ No segments available to delete"
 
     try:
-        row_idx = evt.index[0]
-        if 0 <= row_idx < len(app.all_segments):
-            deleted_seg = app.all_segments[row_idx]
-            app.all_segments.pop(row_idx)
+        # Parse indices
+        indices_to_delete = parse_indices(indices_str)
 
-            # Update dataframe
-            segments_data = []
-            for seg in app.all_segments:
-                segments_data.append({
-                    "Episode": seg.episode_id,
-                    "Start Frame": seg.start_frame,
-                    "End Frame": seg.end_frame,
-                    "Primitive": seg.primitive.primitive_type.value,
-                    "String": seg.primitive.to_string()
-                })
+        if not indices_to_delete:
+            return None, "✗ No valid indices found in input"
 
-            df = pd.DataFrame(segments_data) if segments_data else pd.DataFrame(columns=["Episode", "Start Frame", "End Frame", "Primitive", "String"])
+        # Validate indices
+        invalid_indices = [i for i in indices_to_delete if i < 0 or i >= len(app.all_segments)]
+        if invalid_indices:
+            # Convert back to 1-indexed for error message
+            invalid_display = [i + 1 for i in invalid_indices]
+            return None, f"✗ Invalid indices: {invalid_display}. Valid range: 1-{len(app.all_segments)}"
 
-            return df, f"✓ Deleted segment (Episode {deleted_seg.episode_id}, frames {deleted_seg.start_frame}-{deleted_seg.end_frame})"
+        # Delete segments (in reverse order to maintain indices)
+        deleted_count = 0
+        for idx in sorted(indices_to_delete, reverse=True):
+            app.all_segments.pop(idx)
+            deleted_count += 1
 
-        return segments_df, "Invalid segment index"
+        # Update dataframe
+        segments_data = []
+        for idx, seg in enumerate(app.all_segments):
+            segments_data.append({
+                "Index": idx + 1,
+                "Episode": seg.episode_id,
+                "Start Frame": seg.start_frame,
+                "End Frame": seg.end_frame,
+                "Primitive": seg.primitive.primitive_type.value,
+                "String": seg.primitive.to_string()
+            })
+
+        df = pd.DataFrame(segments_data) if segments_data else pd.DataFrame(columns=["Index", "Episode", "Start Frame", "End Frame", "Primitive", "String"])
+
+        return df, f"✓ Deleted {deleted_count} segment(s). Remaining: {len(app.all_segments)}"
     except Exception as e:
-        return segments_df, f"✗ Error: {str(e)}"
+        return None, f"✗ Error: {str(e)}"
 
 
 # Build Gradio UI
@@ -489,12 +552,19 @@ with gr.Blocks(title="Sweep Annotator") as demo:
         undo_point_btn = gr.Button("Undo Last Point")
 
     gr.Markdown("## Segment List")
-    gr.Markdown("**WARNING: Click to delete.**")
     segments_dataframe = gr.Dataframe(
-        headers=["Episode", "Start Frame", "End Frame", "Primitive", "String"],
-        datatype=["number", "number", "number", "str", "str"],
+        headers=["Index", "Episode", "Start Frame", "End Frame", "Primitive", "String"],
+        datatype=["number", "number", "number", "number", "str", "str"],
         interactive=False
     )
+
+    with gr.Row():
+        delete_indices_input = gr.Textbox(
+            label="Indices to Delete",
+            placeholder="e.g., 2, 3, 4-6, 7-10",
+            scale=3
+        )
+        delete_segments_btn = gr.Button("Delete", variant="stop", scale=1)
 
     delete_segment_status = gr.Textbox(label="Delete Status", interactive=False)
 
@@ -597,9 +667,9 @@ with gr.Blocks(title="Sweep Annotator") as demo:
         outputs=[export_status]
     )
 
-    segments_dataframe.select(
-        fn=delete_segment,
-        inputs=[segments_dataframe],
+    delete_segments_btn.click(
+        fn=delete_segments_by_indices,
+        inputs=[delete_indices_input],
         outputs=[segments_dataframe, delete_segment_status]
     )
 
