@@ -4,6 +4,20 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
+import json
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle numpy types."""
+    def default(self, obj):
+        if isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
 
 from modules.data_loader import LeRobotDataLoader
 from modules.video_processor import VideoProcessor
@@ -12,7 +26,7 @@ from modules.trajectory_segmenter import TrajectorySegmenter
 from modules.primitive_annotator import PrimitiveAnnotator
 from modules.data_exporter import LeRobotExporter
 from modules.visualization import add_text_overlay
-from config.primitives_config import PrimitiveType, PrimitiveAnnotation, Coordinate
+from config.primitives_config import PrimitiveType, PrimitiveAnnotation, Coordinate, TrajectorySegment
 from utils.coordinate_utils import pixel_to_normalized
 
 
@@ -116,7 +130,7 @@ def update_frame(episode_id: int, frame_idx: int) -> Tuple[np.ndarray, np.ndarra
         original_frame = add_text_overlay(original_frame, f"Frame: {frame_idx}", (10, 30))
         corrected_frame = add_text_overlay(corrected_frame, f"Frame: {frame_idx}", (10, 30))
 
-        return original_frame, corrected_frame, f"Frame {frame_idx}/{app.current_episode.total_frames - 1}"
+        return original_frame, corrected_frame
     except Exception as e:
         return None, None, f"Error: {str(e)}"
 
@@ -308,6 +322,71 @@ def load_calibration_file(dataset_path: str) -> Tuple[str, np.ndarray, np.ndarra
         return f"✗ Error loading calibration: {str(e)}", None, None
 
 
+def save_annotations(dataset_path: str) -> Tuple[pd.DataFrame, str]:
+    """Save all annotations to file."""
+    if not app.all_segments:
+        return None, "✗ No annotations to save"
+
+    if not dataset_path:
+        return None, "✗ Please specify dataset path"
+
+    try:
+        annotations_path = Path(dataset_path) / "annotations.json"
+
+        # Convert all segments to dictionaries
+        annotations_data = {
+            "segments": [seg.to_dict() for seg in app.all_segments],
+            "total_segments": len(app.all_segments)
+        }
+
+        # Save to JSON file
+        with open(annotations_path, 'w') as f:
+            json.dump(annotations_data, f, indent=2, cls=NumpyEncoder)
+
+        return None, f"✓ Saved {len(app.all_segments)} annotations to {annotations_path}"
+    except Exception as e:
+        return None, f"✗ Error saving annotations: {str(e)}"
+
+
+def load_annotations(dataset_path: str) -> Tuple[pd.DataFrame, str]:
+    """Load annotations from file."""
+    if not dataset_path:
+        return None, "✗ Please specify dataset path"
+
+    try:
+        annotations_path = Path(dataset_path) / "annotations.json"
+
+        if not annotations_path.exists():
+            return None, f"✗ No annotations file found at {annotations_path}"
+
+        # Load JSON file
+        with open(annotations_path, 'r') as f:
+            annotations_data = json.load(f)
+
+        # Convert dictionaries back to TrajectorySegment objects
+        app.all_segments = [
+            TrajectorySegment.from_dict(seg_data)
+            for seg_data in annotations_data["segments"]
+        ]
+
+        # Update segments dataframe
+        segments_data = []
+        for seg in app.all_segments:
+            segments_data.append({
+                "Episode": seg.episode_id,
+                "Start Frame": seg.start_frame,
+                "End Frame": seg.end_frame,
+                "Primitive": seg.primitive.primitive_type.value,
+                "String": seg.primitive.to_string()
+            })
+
+        df = pd.DataFrame(segments_data)
+
+        return df, f"✓ Loaded {len(app.all_segments)} annotations from {annotations_path}"
+    except Exception as e:
+        return None, f"✗ Error loading annotations: {str(e)}"
+
+
 def export_dataset(output_path: str) -> str:
     """Export annotated dataset."""
     if not app.all_segments:
@@ -368,7 +447,6 @@ def delete_segment(segments_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[pd.Da
         return segments_df, f"✗ Error: {str(e)}"
 
 
-# TODO:
 # Build Gradio UI
 with gr.Blocks(title="Sweep Annotator") as demo:
     gr.Markdown("# Sweep Annotator")
@@ -388,8 +466,6 @@ with gr.Blocks(title="Sweep Annotator") as demo:
             original_video_display = gr.Image(label="Original View (Click to calibrate)", type="numpy", interactive=True) # 可以添加参数 height=400 调整高度，但图片不会自动缩放
         with gr.Column():
             corrected_video_display = gr.Image(label="Corrected View (Click to annotate)", type="numpy", interactive=True)
-
-    frame_status = gr.Textbox(label="Frame Info", interactive=False)
 
     gr.Markdown("## Segmentation & Annotation")
     
@@ -412,7 +488,8 @@ with gr.Blocks(title="Sweep Annotator") as demo:
         reset_points_btn = gr.Button("Reset Points")
         undo_point_btn = gr.Button("Undo Last Point")
 
-    gr.Markdown("## Segment List (Click to delete)")
+    gr.Markdown("## Segment List")
+    gr.Markdown("**WARNING: Click to delete.**")
     segments_dataframe = gr.Dataframe(
         headers=["Episode", "Start Frame", "End Frame", "Primitive", "String"],
         datatype=["number", "number", "number", "str", "str"],
@@ -420,7 +497,15 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     )
 
     delete_segment_status = gr.Textbox(label="Delete Status", interactive=False)
-    
+
+    gr.Markdown("## Save/Load Annotations")
+    gr.Markdown("Save your annotation progress to resume later, or load previously saved annotations.")
+    with gr.Row():
+        save_annotations_btn = gr.Button("Save Annotations", variant="primary")
+        load_annotations_btn = gr.Button("Load Annotations", variant="primary")
+
+    annotations_status = gr.Textbox(label="Annotations Status", interactive=False)
+
     gr.Markdown("## Perspective Correction")
     with gr.Row():
         calibration_mode_btn = gr.Button("Set Calibration Points")
@@ -452,7 +537,7 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     frame_slider.change(
         fn=update_frame,
         inputs=[episode_dropdown, frame_slider],
-        outputs=[original_video_display, corrected_video_display, frame_status]
+        outputs=[original_video_display, corrected_video_display]
     )
 
     calibration_mode_btn.click(
@@ -516,6 +601,18 @@ with gr.Blocks(title="Sweep Annotator") as demo:
         fn=delete_segment,
         inputs=[segments_dataframe],
         outputs=[segments_dataframe, delete_segment_status]
+    )
+
+    save_annotations_btn.click(
+        fn=save_annotations,
+        inputs=[dataset_path_input],
+        outputs=[segments_dataframe, annotations_status]
+    )
+
+    load_annotations_btn.click(
+        fn=load_annotations,
+        inputs=[dataset_path_input],
+        outputs=[segments_dataframe, annotations_status]
     )
 
 

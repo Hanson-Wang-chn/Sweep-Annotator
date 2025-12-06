@@ -8,4 +8,4 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
-sweep2E_dualarm_v1/
+data/

@@ -82,6 +82,20 @@ class PrimitiveAnnotation:
             "timestamp_end": self.timestamp_end
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PrimitiveAnnotation':
+        """Create from dictionary for JSON deserialization."""
+        return cls(
+            primitive_type=PrimitiveType(data["type"]),
+            coordinates=[Coordinate.from_list(c) for c in data["coordinates"]],
+            target_position=Coordinate.from_list(data["target_position"]) if data["target_position"] else None,
+            start_frame=data["start_frame"],
+            end_frame=data["end_frame"],
+            episode_id=data["episode_id"],
+            timestamp_start=data["timestamp_start"],
+            timestamp_end=data["timestamp_end"]
+        )
+
 
 @dataclass
 class TrajectorySegment:
@@ -105,6 +119,17 @@ class TrajectorySegment:
             "overlap_next": self.overlap_next,
             "primitive": self.primitive.to_dict()
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'TrajectorySegment':
+        """Create from dictionary for JSON deserialization."""
+        return cls(
+            episode_id=data["episode_id"],
+            start_frame=data["start_frame"],
+            end_frame=data["end_frame"],
+            overlap_next=data["overlap_next"],
+            primitive=PrimitiveAnnotation.from_dict(data["primitive"])
+        )
 
 
 @dataclass
