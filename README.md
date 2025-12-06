@@ -2,6 +2,8 @@
 
 A Gradio-based GUI tool for annotating robot manipulation trajectories with primitive actions. This tool enables efficient annotation of sweeping, clearing, and refinement primitives on LeRobot format datasets with perspective correction capabilities.
 
+![demo](static/demo.png)
+
 ## Features
 
 - Load/export annotated datasets in LeRobot format

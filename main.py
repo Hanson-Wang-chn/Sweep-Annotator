@@ -572,8 +572,8 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     gr.Markdown("## Save/Load Annotations")
     gr.Markdown("Save your annotation progress to resume later, or load previously saved annotations.")
     with gr.Row():
-        save_annotations_btn = gr.Button("Save Annotations", variant="primary")
-        load_annotations_btn = gr.Button("Load Annotations", variant="primary")
+        save_annotations_btn = gr.Button("Save Annotations")
+        load_annotations_btn = gr.Button("Load Annotations")
 
     annotations_status = gr.Textbox(label="Annotations Status", interactive=False)
 
@@ -588,7 +588,7 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     gr.Markdown("## Export")
     with gr.Row():
         output_path_input = gr.Textbox(label="Output Path", placeholder="/path/to/output/dataset", scale=3)
-        export_btn = gr.Button("Export Annotated Dataset", variant="primary", scale=1)
+        export_btn = gr.Button("Export Annotated Dataset", scale=1)
 
     export_status = gr.Textbox(label="Export Status", interactive=False)
 
