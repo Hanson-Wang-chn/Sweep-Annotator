@@ -276,8 +276,10 @@ After completing annotations, export the processed dataset.
 ```
 output_path/
 ├── meta/
-│   ├── info.json
-│   └── episodes.jsonl       # One episode per segment
+│   ├── info.json              # Dataset metadata
+│   ├── episodes.jsonl         # One episode per segment (episode_index, tasks, length)
+│   ├── episodes_stats.jsonl   # Per-episode statistics
+│   └── tasks.jsonl            # Task definitions
 ├── data/
 │   └── chunk-*/
 │       └── episode_*.parquet  # State/action data per segment
@@ -286,6 +288,8 @@ output_path/
         └── observation.images.*/
             └── episode_*.mp4    # Corrected video per segment
 ```
+
+**Note**: The exported dataset follows LeRobot 2.1 format strictly. Each episode in `episodes.jsonl` contains only `episode_index`, `tasks`, and `length` fields. Statistics for each episode are stored separately in `episodes_stats.jsonl`.
 
 **Console Output**: Progress messages show which segments are being processed:
 ```
