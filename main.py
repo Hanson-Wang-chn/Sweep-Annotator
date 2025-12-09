@@ -399,6 +399,22 @@ def export_dataset(output_path: str) -> str:
         return "✗ Please specify output path"
 
     try:
+        # Collect all unique episode IDs from segments
+        episode_ids_needed = set(segment.episode_id for segment in app.all_segments)
+
+        # Load any missing episodes into cache
+        for episode_id in episode_ids_needed:
+            if episode_id not in app.episode_data_cache:
+                print(f"Loading episode {episode_id} data for export...")
+                episode = app.data_loader.load_episode(episode_id)
+                app.episode_data_cache[episode_id] = episode.data
+
+                # Load video processors for this episode
+                video_processors = {}
+                for camera_name, video_path in episode.video_paths.items():
+                    video_processors[camera_name] = VideoProcessor(video_path)
+                app.episode_video_processors_cache[episode_id] = video_processors
+
         # Create exporter
         exporter = LeRobotExporter(output_path, str(app.data_loader.dataset_path))
 
