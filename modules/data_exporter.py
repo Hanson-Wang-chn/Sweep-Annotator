@@ -10,6 +10,7 @@ from modules.video_processor import VideoProcessor
 from modules.perspective_corrector import PerspectiveCorrector
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import shutil
+import multiprocessing as mp
 
 
 class LeRobotExporter:
@@ -111,9 +112,10 @@ class LeRobotExporter:
                 )
 
         # Create episode metadata (LeRobot 2.1 format - only episode_index, tasks, length)
+        # tasks field now contains full primitive string
         episode_metadata = {
             "episode_index": new_episode_id,
-            "tasks": [segment.primitive.primitive_type.value],
+            "tasks": [segment.primitive.to_string()],
             "length": len(segment_data)
         }
 
@@ -233,9 +235,10 @@ class LeRobotExporter:
                           episode_data_map: Dict[int, pd.DataFrame],
                           video_processor_map: Dict[int, Dict[str, VideoProcessor]],
                           perspective_corrector: PerspectiveCorrector,
-                          progress_callback=None) -> List[Dict]:
+                          progress_callback=None,
+                          num_workers: int = 8) -> List[Dict]:
         """
-        Export all segments as new dataset.
+        Export all segments as new dataset using multiprocessing.
 
         Args:
             segments: All annotated segments
@@ -243,6 +246,7 @@ class LeRobotExporter:
             video_processor_map: {episode_id: {camera_name: VideoProcessor}}
             perspective_corrector: Perspective corrector for main camera
             progress_callback: Optional callback for progress updates
+            num_workers: Number of parallel processes to use (default: 8)
 
         Returns:
             List of episode metadata dicts
@@ -252,24 +256,64 @@ class LeRobotExporter:
         episode_metadata_list = []
         episode_data_list = []
 
+        # Prepare arguments for parallel processing
+        export_args = []
         for idx, segment in enumerate(segments):
-            if progress_callback:
-                progress_callback(idx, len(segments), f"Exporting segment {idx + 1}/{len(segments)}")
-
             episode_data = episode_data_map[segment.episode_id]
             video_processors = video_processor_map[segment.episode_id]
+            
+            # Serialize the arguments
+            export_args.append({
+                'segment': segment,
+                'episode_data': episode_data,
+                'video_paths': {cam: vp.video_path for cam, vp in video_processors.items()},
+                'perspective_corrector_data': {
+                    'is_calibrated': perspective_corrector.is_calibrated(),
+                    'src_points': perspective_corrector.src_points.tolist() if perspective_corrector.src_points is not None else None,
+                    'dst_points': perspective_corrector.dst_points.tolist() if perspective_corrector.dst_points is not None else None,
+                    'output_size': perspective_corrector.output_size
+                },
+                'new_episode_id': idx,
+                'output_path': str(self.output_path),
+                'original_metadata': self.original_metadata
+            })
 
-            episode_metadata = self.export_segment(
-                segment,
-                episode_data,
-                video_processors,
-                perspective_corrector,
-                idx
-            )
+        # Use ProcessPoolExecutor for parallel processing
+        if progress_callback:
+            progress_callback(0, len(segments), "Starting parallel export...")
 
-            episode_metadata_list.append(episode_metadata)
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all tasks
+            future_to_idx = {
+                executor.submit(_export_segment_worker, args): args['new_episode_id']
+                for args in export_args
+            }
 
-            # Load exported parquet for statistics computation
+            # Collect results as they complete
+            completed = 0
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    episode_metadata = future.result()
+                    episode_metadata_list.append((idx, episode_metadata))
+                    
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed, len(segments), 
+                                        f"Exported segment {completed}/{len(segments)}")
+                except Exception as e:
+                    print(f"Error exporting segment {idx}: {str(e)}")
+                    raise
+
+        # Sort by episode index to maintain order
+        episode_metadata_list.sort(key=lambda x: x[0])
+        episode_metadata_list = [meta for _, meta in episode_metadata_list]
+
+        # Load exported parquet files for statistics computation
+        if progress_callback:
+            progress_callback(len(segments), len(segments), "Loading exported data for statistics...")
+
+        for idx in range(len(segments)):
             parquet_path = self.output_path / "data" / "chunk-000" / f"episode_{idx:06d}.parquet"
             episode_data_list.append(pd.read_parquet(parquet_path))
 
@@ -300,7 +344,7 @@ class LeRobotExporter:
         info["total_frames"] = sum(ep["length"] for ep in episode_metadata_list)
         info["splits"] = {"train": f"0:{len(episode_metadata_list)}"}
 
-        # Get unique tasks
+        # Get unique tasks (now each unique primitive string is a separate task)
         all_tasks = set()
         for ep in episode_metadata_list:
             all_tasks.update(ep["tasks"])
@@ -321,8 +365,108 @@ class LeRobotExporter:
             for ep_meta in episode_metadata_list:
                 f.write(json.dumps(ep_meta) + '\n')
 
-        # Create tasks.jsonl
+        # Create tasks.jsonl - each unique primitive string becomes a separate task
         tasks = [{"task_index": i, "task": task} for i, task in enumerate(sorted(all_tasks))]
         with open(self.output_path / "meta" / "tasks.jsonl", 'w') as f:
             for task in tasks:
                 f.write(json.dumps(task) + '\n')
+
+
+def _export_segment_worker(args: Dict) -> Dict:
+    """
+    Worker function for parallel segment export.
+    This function runs in a separate process.
+
+    Args:
+        args: Dictionary containing all necessary arguments
+
+    Returns:
+        Episode metadata dict
+    """
+    import numpy as np
+    from pathlib import Path
+    from modules.video_processor import VideoProcessor
+    from modules.perspective_corrector import PerspectiveCorrector
+    
+    # Unpack arguments
+    segment = args['segment']
+    episode_data = args['episode_data']
+    video_paths = args['video_paths']
+    perspective_data = args['perspective_corrector_data']
+    new_episode_id = args['new_episode_id']
+    output_path = Path(args['output_path'])
+    original_metadata = args['original_metadata']
+
+    # Reconstruct perspective corrector
+    perspective_corrector = PerspectiveCorrector(output_size=tuple(perspective_data['output_size']))
+    if perspective_data['is_calibrated']:
+        src_points = np.array(perspective_data['src_points'], dtype=np.float32)
+        dst_points = np.array(perspective_data['dst_points'], dtype=np.float32)
+        perspective_corrector.set_correction_points(src_points, dst_points)
+
+    # Create video processors
+    video_processor_map = {}
+    for camera_name, video_path in video_paths.items():
+        video_processor_map[camera_name] = VideoProcessor(video_path)
+
+    # Extract relevant data rows
+    segment_data = episode_data[
+        (episode_data['frame_index'] >= segment.start_frame) &
+        (episode_data['frame_index'] <= segment.end_frame)
+    ].copy()
+
+    # Reset frame indices and timestamps
+    segment_data['frame_index'] = range(len(segment_data))
+    segment_data['episode_index'] = new_episode_id
+
+    # Reset timestamps to start from 0
+    if len(segment_data) > 0:
+        first_timestamp = segment_data['timestamp'].iloc[0]
+        segment_data['timestamp'] = segment_data['timestamp'] - first_timestamp
+
+    # Update index
+    segment_data['index'] = range(len(segment_data))
+
+    # Save parquet file
+    parquet_path = output_path / "data" / "chunk-000" / f"episode_{new_episode_id:06d}.parquet"
+    segment_data.to_parquet(parquet_path, index=False)
+
+    # Export video segments for all cameras
+    for camera_name, video_processor in video_processor_map.items():
+        video_output_path = (
+            output_path / "videos" / "chunk-000" /
+            f"observation.images.{camera_name}" / f"episode_{new_episode_id:06d}.mp4"
+        )
+
+        if camera_name == "main" and perspective_corrector.is_calibrated():
+            # Apply perspective correction to main camera
+            def transform_fn(frame):
+                return perspective_corrector.correct_image(frame, perspective_corrector.output_size)
+
+            video_processor.export_segment(
+                segment.start_frame,
+                segment.end_frame,
+                str(video_output_path),
+                transform_fn=transform_fn,
+                output_size=perspective_corrector.output_size
+            )
+        else:
+            # For wrist cameras, just extract segment without transformation
+            video_processor.export_segment(
+                segment.start_frame,
+                segment.end_frame,
+                str(video_output_path)
+            )
+
+    # Clean up video processors
+    for vp in video_processor_map.values():
+        vp.release()
+
+    # Create episode metadata
+    episode_metadata = {
+        "episode_index": new_episode_id,
+        "tasks": [segment.primitive.to_string()],
+        "length": len(segment_data)
+    }
+
+    return episode_metadata

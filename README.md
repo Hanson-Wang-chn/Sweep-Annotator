@@ -279,7 +279,7 @@ output_path/
 │   ├── info.json              # Dataset metadata
 │   ├── episodes.jsonl         # One episode per segment (episode_index, tasks, length)
 │   ├── episodes_stats.jsonl   # Per-episode statistics
-│   └── tasks.jsonl            # Task definitions
+│   └── tasks.jsonl            # Task definitions (each unique primitive string)
 ├── data/
 │   └── chunk-*/
 │       └── episode_*.parquet  # State/action data per segment
@@ -290,6 +290,8 @@ output_path/
 ```
 
 **Note**: The exported dataset follows LeRobot 2.1 format strictly. Each episode in `episodes.jsonl` contains only `episode_index`, `tasks`, and `length` fields. Statistics for each episode are stored separately in `episodes_stats.jsonl`.
+
+**Important**: The `tasks` field in `episodes.jsonl` now contains the complete primitive string representation (e.g., `["<Sweep> <Box> <0.549, 0.446, 0.737, 0.549> <to> <Position> <0.893, 0.549>"]`). Correspondingly, `tasks.jsonl` includes each unique primitive string as a separate task, since each primitive with different coordinates is considered a different task.
 
 **Console Output**: Progress messages show which segments are being processed:
 ```
