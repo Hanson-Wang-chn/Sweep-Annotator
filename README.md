@@ -265,6 +265,20 @@ After completing annotations, export the processed dataset.
 
 2. **Click "Export Annotated Dataset"**
 
+**Verifying Export:**
+
+After export completes, you can verify that task_index values are correctly set:
+
+```bash
+python verify_task_index.py /path/to/output/annotated_dataset
+```
+
+This script will:
+- Show all task definitions from `tasks.jsonl`
+- Display task_index statistics for each episode
+- Check parquet files to verify task_index values
+- Report if there are any issues
+
 **What happens during export:**
 - Creates new LeRobot format dataset at output path
 - Splits episodes into segments based on annotations
@@ -291,7 +305,15 @@ output_path/
 
 **Note**: The exported dataset follows LeRobot 2.1 format strictly. Each episode in `episodes.jsonl` contains only `episode_index`, `tasks`, and `length` fields. Statistics for each episode are stored separately in `episodes_stats.jsonl`.
 
-**Important**: The `tasks` field in `episodes.jsonl` now contains the complete primitive string representation (e.g., `["<Sweep> <Box> <0.549, 0.446, 0.737, 0.549> <to> <Position> <0.893, 0.549>"]`). Correspondingly, `tasks.jsonl` includes each unique primitive string as a separate task, since each primitive with different coordinates is considered a different task.
+**Important Details:**
+
+1. **Task Indexing**: The `task_index` column in exported parquet files correctly maps to tasks defined in `tasks.jsonl`. Each unique primitive string (including coordinates) is assigned a unique task_index (0, 1, 2, ...). The export process uses a two-phase approach:
+   - Phase 1: Collects all unique tasks and creates task_index mapping
+   - Phase 2: Exports segments in parallel with correct task_index values
+
+2. **Task Format**: The `tasks` field in `episodes.jsonl` contains the complete primitive string representation (e.g., `["<Sweep> <Box> <0.549, 0.446, 0.737, 0.549> <to> <Position> <0.893, 0.549>"]`). Each unique primitive string is treated as a separate task in `tasks.jsonl`.
+
+3. **Parallel Export**: The export process uses multiprocessing (default: 8 workers) to speed up video encoding and data processing. You can adjust the number of workers by modifying the `num_workers` parameter in the export function.
 
 **Console Output**: Progress messages show which segments are being processed:
 ```
@@ -385,6 +407,128 @@ The interface provides real-time information:
 - Check that `annotations.json` exists in dataset directory
 - Verify the dataset path is correct when loading
 
+## Technical Details
+
+### Export Process Architecture
+
+The export process follows a two-phase architecture to ensure correct `task_index` assignment while maintaining parallel processing efficiency:
+
+#### Phase 1: Task Index Mapping
+1. Collects all unique primitive strings from all segments
+2. Creates a sorted mapping: `{primitive_string: task_index}`
+   - Example: `{"<Sweep> <Box> <0.1, 0.2, ...>": 0, "<Clear> <Box> <0.3, 0.4, ...>": 1}`
+3. This ensures consistent task_index assignment across all episodes
+
+#### Phase 2: Parallel Export
+1. Each segment is exported by a separate worker process
+2. Worker receives:
+   - Segment data (frames, primitive, coordinates)
+   - Pre-computed task_index for this segment
+   - Video processor and perspective corrector data
+3. Worker sets `task_index` column in parquet data before saving
+4. Multiple workers run concurrently (default: 8 workers)
+
+#### Key Design Decisions
+
+**Why Two-Phase?**
+- We need to know all unique tasks before assigning indices
+- But we want to export segments in parallel for performance
+- Solution: First phase builds the mapping, second phase uses it
+
+**task_index in Parquet Files:**
+- Each row in the parquet file has a `task_index` column
+- All rows in one episode have the same `task_index`
+- The index maps to the task definition in `meta/tasks.jsonl`
+
+**Task Definition:**
+- In `tasks.jsonl`: `{"task_index": 0, "task": "<Sweep> <Box> <0.549, 0.446, ...>"}`
+- In `episodes.jsonl`: `{"episode_index": 0, "tasks": ["<Sweep> <Box> <0.549, 0.446, ...>"], "length": 123}`
+- The task string includes the full primitive specification with coordinates
+
+### Data Processing Pipeline
+
+```
+Annotated Segments
+       ↓
+Phase 1: Build task_to_index mapping
+       ↓
+Phase 2: Parallel export (8 workers)
+       ↓
+   ┌───────┬───────┬───────┬───────┐
+Worker 1  Worker 2  Worker 3  ...  Worker 8
+   ↓       ↓       ↓             ↓
+- Extract segment data
+- Set correct task_index
+- Apply perspective correction
+- Export video segment
+- Save parquet file
+       ↓
+Results collected and sorted
+       ↓
+Compute statistics
+       ↓
+Generate metadata files
+```
+
+### Exported Dataset Fields
+
+Each parquet file contains the following columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `index` | int | Global frame index (reset per episode) |
+| `episode_index` | int | Episode number in exported dataset |
+| `frame_index` | int | Frame number within episode |
+| `timestamp` | float | Time in seconds (reset to 0 per episode) |
+| `task_index` | int | Index of task in tasks.jsonl |
+| `action` | array | Robot action vector |
+| `observation.state` | array | Robot state vector |
+| `observation.images.*` | reference | Video frame reference |
+
+**Modification from Original Data:**
+- `episode_index`: Updated to new episode number
+- `frame_index`: Reset to start from 0
+- `timestamp`: Reset to start from 0
+- `index`: Reset to start from 0
+- `task_index`: **Set to correct value** based on segment's primitive
+
+### Understanding task_index Statistics
+
+**Important:** When reviewing `episodes_stats.jsonl`, it's normal to see statistics like:
+```json
+"task_index": {"min": [0], "max": [0], "mean": [0.0], "std": [0.0], "count": [32]}
+```
+
+This is **expected behavior** because:
+
+1. Each episode corresponds to **one segment** (one task)
+2. All rows within an episode have the **same task_index**
+3. Therefore: `min = max = mean`, and `std = 0.0`
+
+**How to verify correctness:**
+
+✅ **Correct scenario:**
+```json
+Episode 0: "task_index": {"min": [0], "max": [0], "mean": [0.0], ...}
+Episode 1: "task_index": {"min": [1], "max": [1], "mean": [1.0], ...}
+Episode 2: "task_index": {"min": [0], "max": [0], "mean": [0.0], ...}
+Episode 3: "task_index": {"min": [2], "max": [2], "mean": [2.0], ...}
+```
+Different episodes have different task_index values (0, 1, 2) based on their tasks.
+
+❌ **Problem scenario:**
+```json
+Episode 0: "task_index": {"min": [0], "max": [0], "mean": [0.0], ...}
+Episode 1: "task_index": {"min": [0], "max": [0], "mean": [0.0], ...}
+Episode 2: "task_index": {"min": [0], "max": [0], "mean": [0.0], ...}
+```
+All episodes have task_index=0, but `tasks.jsonl` defines multiple different tasks.
+
+**Use the verification script** to check your exported dataset:
+```bash
+python verify_task_index.py /path/to/exported/dataset
+```
+
 ## Data Format Reference
 
 ### Primitive Types
@@ -396,3 +540,31 @@ The interface provides real-time information:
 5. **Refine Arc**: `<Refine> <Arc> <x1,y1, x2,y2, x3,y3>`
 
 All coordinates are normalized to [0, 1] range.
+
+## Changelog
+
+### Version 1.1 (Current)
+
+**Bug Fixes:**
+- Fixed `task_index` column in exported parquet files being set to 0 for all episodes
+  - Implemented two-phase export architecture to correctly map task strings to task indices
+  - Phase 1 now collects all unique tasks and builds the task_index mapping before export
+  - Phase 2 applies the pre-computed task_index to each segment during parallel export
+  - All parquet files now have correct task_index values matching tasks.jsonl
+
+**Improvements:**
+- Enhanced export process with clear progress messages for task index mapping phase
+- Added detailed technical documentation explaining the export architecture
+- Improved code comments in data_exporter.py for better maintainability
+
+### Version 1.0 (Initial Release)
+
+**Features:**
+- Initial release with Gradio-based GUI
+- Support for 5 primitive types (Sweep Box, Sweep Triangle, Clear Box, Refine Line, Refine Arc)
+- Perspective correction and calibration
+- Multi-episode annotation support
+- Save/load annotation progress
+- Export to LeRobot 2.1 format
+- Multi-process parallel export (8 workers)
+- Segment deletion interface

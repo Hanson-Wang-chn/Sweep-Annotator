@@ -52,6 +52,9 @@ class LeRobotExporter:
         """
         Export single segment as new episode.
 
+        DEPRECATED: This method is no longer used. Use export_all_segments() instead,
+        which properly handles task_index mapping and parallel processing.
+
         Args:
             segment: Trajectory segment to export
             episode_data: Original episode parquet data
@@ -253,15 +256,33 @@ class LeRobotExporter:
         """
         self.create_dataset_structure()
 
+        # PHASE 1: Collect all unique tasks and create task_index mapping
+        if progress_callback:
+            progress_callback(0, len(segments), "Building task index mapping...")
+
+        all_tasks = set()
+        for segment in segments:
+            all_tasks.add(segment.primitive.to_string())
+
+        # Create task to task_index mapping (sorted for consistency)
+        task_to_index = {task: idx for idx, task in enumerate(sorted(all_tasks))}
+
+        if progress_callback:
+            progress_callback(0, len(segments), f"Found {len(all_tasks)} unique tasks. Starting parallel export...")
+
         episode_metadata_list = []
         episode_data_list = []
 
-        # Prepare arguments for parallel processing
+        # PHASE 2: Prepare arguments for parallel processing with task_index mapping
         export_args = []
         for idx, segment in enumerate(segments):
             episode_data = episode_data_map[segment.episode_id]
             video_processors = video_processor_map[segment.episode_id]
-            
+
+            # Get the task_index for this segment's task
+            task_string = segment.primitive.to_string()
+            task_index = task_to_index[task_string]
+
             # Serialize the arguments
             export_args.append({
                 'segment': segment,
@@ -274,14 +295,12 @@ class LeRobotExporter:
                     'output_size': perspective_corrector.output_size
                 },
                 'new_episode_id': idx,
+                'task_index': task_index,  # Pass the correct task_index
                 'output_path': str(self.output_path),
                 'original_metadata': self.original_metadata
             })
 
         # Use ProcessPoolExecutor for parallel processing
-        if progress_callback:
-            progress_callback(0, len(segments), "Starting parallel export...")
-
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             # Submit all tasks
             future_to_idx = {
@@ -296,10 +315,10 @@ class LeRobotExporter:
                 try:
                     episode_metadata = future.result()
                     episode_metadata_list.append((idx, episode_metadata))
-                    
+
                     completed += 1
                     if progress_callback:
-                        progress_callback(completed, len(segments), 
+                        progress_callback(completed, len(segments),
                                         f"Exported segment {completed}/{len(segments)}")
                 except Exception as e:
                     print(f"Error exporting segment {idx}: {str(e)}")
@@ -323,20 +342,21 @@ class LeRobotExporter:
 
         self.compute_and_save_stats(episode_data_list)
 
-        # Create metadata files
-        self.create_metadata(episode_metadata_list)
+        # Create metadata files (now with pre-computed task mapping)
+        self.create_metadata(episode_metadata_list, task_to_index)
 
         if progress_callback:
             progress_callback(len(segments), len(segments), "Export complete!")
 
         return episode_metadata_list
 
-    def create_metadata(self, episode_metadata_list: List[Dict]):
+    def create_metadata(self, episode_metadata_list: List[Dict], task_to_index: Dict[str, int]):
         """
         Generate meta/info.json, meta/episodes.jsonl, meta/tasks.jsonl.
 
         Args:
             episode_metadata_list: List of episode metadata dicts
+            task_to_index: Mapping from task string to task_index
         """
         # Create info.json
         info = self.original_metadata.copy()
@@ -344,11 +364,8 @@ class LeRobotExporter:
         info["total_frames"] = sum(ep["length"] for ep in episode_metadata_list)
         info["splits"] = {"train": f"0:{len(episode_metadata_list)}"}
 
-        # Get unique tasks (now each unique primitive string is a separate task)
-        all_tasks = set()
-        for ep in episode_metadata_list:
-            all_tasks.update(ep["tasks"])
-        info["total_tasks"] = len(all_tasks)
+        # Use pre-computed task mapping
+        info["total_tasks"] = len(task_to_index)
 
         # Count total videos
         camera_count = sum(1 for key in info["features"] if key.startswith("observation.images."))
@@ -365,8 +382,8 @@ class LeRobotExporter:
             for ep_meta in episode_metadata_list:
                 f.write(json.dumps(ep_meta) + '\n')
 
-        # Create tasks.jsonl - each unique primitive string becomes a separate task
-        tasks = [{"task_index": i, "task": task} for i, task in enumerate(sorted(all_tasks))]
+        # Create tasks.jsonl using pre-computed task mapping
+        tasks = [{"task_index": idx, "task": task} for task, idx in sorted(task_to_index.items(), key=lambda x: x[1])]
         with open(self.output_path / "meta" / "tasks.jsonl", 'w') as f:
             for task in tasks:
                 f.write(json.dumps(task) + '\n')
@@ -387,13 +404,14 @@ def _export_segment_worker(args: Dict) -> Dict:
     from pathlib import Path
     from modules.video_processor import VideoProcessor
     from modules.perspective_corrector import PerspectiveCorrector
-    
+
     # Unpack arguments
     segment = args['segment']
     episode_data = args['episode_data']
     video_paths = args['video_paths']
     perspective_data = args['perspective_corrector_data']
     new_episode_id = args['new_episode_id']
+    task_index = args['task_index']  # Get the correct task_index
     output_path = Path(args['output_path'])
     original_metadata = args['original_metadata']
 
@@ -426,6 +444,9 @@ def _export_segment_worker(args: Dict) -> Dict:
 
     # Update index
     segment_data['index'] = range(len(segment_data))
+
+    # Set the correct task_index for all rows in this segment
+    segment_data['task_index'] = task_index
 
     # Save parquet file
     parquet_path = output_path / "data" / "chunk-000" / f"episode_{new_episode_id:06d}.parquet"
