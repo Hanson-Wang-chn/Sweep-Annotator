@@ -17,26 +17,26 @@ class PrimitiveType(Enum):
 @dataclass
 class Coordinate:
     """2D coordinate in image space."""
-    x: float  # Normalized [0, 1] or pixel coordinates
-    y: float
+    x: int  # Normalized [0, 1000] coordinates (integers)
+    y: int
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
         return {"x": self.x, "y": self.y}
 
-    def to_list(self) -> List[float]:
+    def to_list(self) -> List[int]:
         """Convert to list [x, y]."""
         return [self.x, self.y]
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Coordinate':
         """Create from dictionary."""
-        return cls(x=data["x"], y=data["y"])
+        return cls(x=int(data["x"]), y=int(data["y"]))
 
     @classmethod
-    def from_list(cls, data: List[float]) -> 'Coordinate':
+    def from_list(cls, data: List) -> 'Coordinate':
         """Create from list [x, y]."""
-        return cls(x=data[0], y=data[1])
+        return cls(x=int(data[0]), y=int(data[1]))
 
 
 @dataclass
@@ -59,12 +59,12 @@ class PrimitiveAnnotation:
         primitive_name = self.primitive_type.value.split('_')[0].capitalize()
         shape_name = self.primitive_type.value.split('_')[1].capitalize() if '_' in self.primitive_type.value else ""
 
-        # Format coordinates
-        coord_strs = [f"{c.x:.3f}, {c.y:.3f}" for c in self.coordinates]
+        # Format coordinates as integers
+        coord_strs = [f"{c.x}, {c.y}" for c in self.coordinates]
         coord_part = f"<{', '.join(coord_strs)}>"
 
         if self.target_position:
-            return f"<{primitive_name}> <{shape_name}> {coord_part} <to> <Position> <{self.target_position.x:.3f}, {self.target_position.y:.3f}>"
+            return f"<{primitive_name}> <{shape_name}> {coord_part} <to> <Position> <{self.target_position.x}, {self.target_position.y}>"
         else:
             return f"<{primitive_name}> <{shape_name}> {coord_part}"
 
@@ -104,7 +104,6 @@ class TrajectorySegment:
     start_frame: int
     end_frame: int
     primitive: PrimitiveAnnotation
-    overlap_next: int  # Number of overlapping frames with next segment
 
     def get_frame_count(self) -> int:
         """Get total number of frames in this segment."""
@@ -116,7 +115,6 @@ class TrajectorySegment:
             "episode_id": self.episode_id,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "overlap_next": self.overlap_next,
             "primitive": self.primitive.to_dict()
         }
 
@@ -127,7 +125,6 @@ class TrajectorySegment:
             episode_id=data["episode_id"],
             start_frame=data["start_frame"],
             end_frame=data["end_frame"],
-            overlap_next=data["overlap_next"],
             primitive=PrimitiveAnnotation.from_dict(data["primitive"])
         )
 

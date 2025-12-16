@@ -99,7 +99,7 @@ class PerspectiveCorrector:
         # Apply transformation
         transformed = cv2.perspectiveTransform(point_array, matrix)
 
-        return Coordinate(x=float(transformed[0, 0, 0]), y=float(transformed[0, 0, 1]))
+        return Coordinate(x=int(round(transformed[0, 0, 0])), y=int(round(transformed[0, 0, 1])))
 
     def save_calibration(self, filepath: str, dataset_name: str = ""):
         """

@@ -29,15 +29,13 @@ class TrajectorySegmenter:
 
         self.current_segment_start = frame_idx
 
-    def end_segment(self, frame_idx: int, primitive: PrimitiveAnnotation,
-                   overlap_frames: int = 0) -> TrajectorySegment:
+    def end_segment(self, frame_idx: int, primitive: PrimitiveAnnotation) -> TrajectorySegment:
         """
         Complete current segment.
 
         Args:
             frame_idx: End frame index
             primitive: Annotated primitive for this segment
-            overlap_frames: Number of frames overlapping with next segment
 
         Returns:
             Created TrajectorySegment
@@ -55,8 +53,7 @@ class TrajectorySegmenter:
             episode_id=self.episode.episode_id,
             start_frame=self.current_segment_start,
             end_frame=frame_idx,
-            primitive=primitive,
-            overlap_next=overlap_frames
+            primitive=primitive
         )
 
         self.segments.append(segment)

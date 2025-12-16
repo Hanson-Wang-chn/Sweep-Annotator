@@ -155,7 +155,7 @@ A **segment** is a portion of a trajectory (range of frames) with a single primi
 
 - **Status Display**: Shows progress like "Captured 2/4 points"
 
-- **Coordinates Display**: Shows captured coordinates in normalized format [0-1]
+- **Coordinates Display**: Shows captured coordinates in normalized format [0-1000]
 
 **Step 4: Add Target Position** (Sweep primitives only)
 - After capturing all shape points, click one more time for the target position
@@ -164,9 +164,7 @@ A **segment** is a portion of a trajectory (range of frames) with a single primi
 
 **Step 5: Mark End Frame**
 1. Move frame slider to the ending frame of the segment
-2. (Optional) Set "Overlap Frames" if this segment overlaps with the next
-   - Example: If frames 90-100 of this segment overlap with the next, enter 10
-3. Click "Mark End Frame & Save Segment"
+2. Click "Mark End Frame & Save Segment"
 
 **Step 6: Segment Saved**
 - The segment appears in the "Segment List" table
@@ -180,16 +178,59 @@ A **segment** is a portion of a trajectory (range of frames) with a single primi
 - **Click on Corrected Image**: Add annotation points
 - **Frame Slider**: Navigate through frames (doesn't affect annotation)
 
+#### Primitives Visualization Tool
+
+The Primitives Visualization Tool allows you to test and visualize primitive strings before or after annotation:
+
+1. **Enter Primitive String**: In the "Primitive String" input box, enter a correctly formatted primitive string
+   - Coordinates must be in [0, 1000] range (integers)
+   - Example: `<Sweep> <Box> <100, 200, 800, 900> <to> <Position> <500, 500>`
+
+2. **Click "Visualize"**: The primitive will be visualized on the corrected video display
+   - Shows the same visual representation as during annotation (points, lines, boxes, etc.)
+   - Useful for verifying coordinate values or testing primitive strings
+
+3. **Status Message**: Shows whether visualization succeeded or if there were errors in the format
+
+**Supported Formats:**
+- `<Sweep> <Box> <x1, y1, x2, y2, x3, y3, x4, y4> <to> <Position> <xt, yt>`
+- `<Sweep> <Triangle> <x1, y1, x2, y2, x3, y3> <to> <Position> <xt, yt>`
+- `<Clear> <Box> <x1, y1, x2, y2, x3, y3, x4, y4>`
+- `<Refine> <Line> <x1, y1, x2, y2>`
+- `<Refine> <Arc> <x1, y1, x2, y2, x3, y3>`
+
+#### Snapshot Feature
+
+The Snapshot feature allows you to save individual frames as images:
+
+1. **Navigate to Desired Frame**: Use the frame slider to select the frame you want to save
+
+2. **Click "Snapshot"**: The current frame will be saved to `data/<dataset_name>/snapshot/` directory
+   - Filename format: `snapshot-<dataset name>-<episode index>-<frame index>.png`
+   - Example: `snapshot-sweep2E_dualarm_v1-0-42.png`
+
+3. **Image Type**:
+   - If calibration is applied: Saves the calibrated (perspective-corrected) image
+   - If no calibration: Saves the original dataset image
+
+4. **Status Message**: Shows the full path where the snapshot was saved
+
+**Use Cases:**
+- Documenting specific frames for reference
+- Creating training examples
+- Debugging annotation issues
+- Visual dataset documentation
+
 #### Coordinate Format
 
-Coordinates are stored in normalized format [0-1] and displayed as:
+Coordinates are stored in normalized format [0-1000] (integers) and displayed as:
 ```
 <Primitive> <Shape> <x1, y1, x2, y2, ...> <to> <Position> <xt, yt>
 ```
 
 Example:
 ```
-<Sweep> <Box> <0.100, 0.200, 0.300, 0.200, 0.300, 0.400, 0.100, 0.400> <to> <Position> <0.500, 0.500>
+<Sweep> <Box> <100, 200, 300, 200, 300, 400, 100, 400> <to> <Position> <500, 500>
 ```
 
 ### 4. Managing Segments
@@ -374,11 +415,13 @@ The interface provides real-time information:
 
 4. **Save Frequently**: Use "Save Annotations" regularly to avoid losing work
 
-5. **Overlap Frames**: Use overlap when segments have transitional frames that belong to both
+5. **Visual Verification**: After clicking points, verify the visualization matches your intent
 
-6. **Visual Verification**: After clicking points, verify the visualization matches your intent
+6. **Segment Deletion**: Use the index-based deletion interface to safely remove multiple segments at once
 
-7. **Segment Deletion**: Use the index-based deletion interface to safely remove multiple segments at once
+7. **Primitives Visualization**: Use the visualization tool to test and verify primitive strings
+
+8. **Snapshots**: Save important frames as reference images using the Snapshot button
 
 ## Troubleshooting
 
@@ -539,11 +582,44 @@ python verify_task_index.py /path/to/exported/dataset
 4. **Refine Line**: `<Refine> <Line> <x1,y1, x2,y2>`
 5. **Refine Arc**: `<Refine> <Arc> <x1,y1, x2,y2, x3,y3>`
 
-All coordinates are normalized to [0, 1] range.
+All coordinates are normalized to [0, 1000] range (integers).
 
 ## Changelog
 
-### Version 1.1 (Current)
+### Version 2.0 (Current)
+
+**Breaking Changes:**
+- **Coordinate Normalization**: Changed from [0, 1] float to [0, 1000] integer format
+  - Provides the same precision but uses integers instead of floats
+  - All existing annotations need to be re-annotated or converted
+  - Affects all primitive strings and coordinate storage
+
+**Removed Features:**
+- **Overlap Frames**: Removed the "Overlap Frames" input and functionality
+  - Segments no longer support overlapping frame ranges
+  - Simplified segment model and export process
+
+**New Features:**
+- **Primitives Visualization Tool**: Interactive tool to visualize primitive strings
+  - Located between annotation controls and segment list
+  - Supports all primitive types with [0, 1000] coordinate format
+  - Provides real-time visual feedback for testing primitive strings
+  - Useful for debugging and verifying annotations
+
+- **Snapshot Feature**: Save individual frames as images
+  - New "Snapshot" button positioned between "Mark Start Frame" and "Mark End Frame"
+  - Saves to `data/<dataset_name>/snapshot/` directory
+  - Filename format: `snapshot-<dataset name>-<episode index>-<frame index>.png`
+  - Automatically uses calibrated image if calibration is applied
+  - Useful for documentation and reference
+
+**Improvements:**
+- Updated coordinate display to show integer values
+- Cleaner UI layout with reorganized annotation controls
+- Better precision handling in coordinate transformations
+- Improved documentation with detailed examples for new features
+
+### Version 1.1
 
 **Bug Fixes:**
 - Fixed `task_index` column in exported parquet files being set to 0 for all episodes

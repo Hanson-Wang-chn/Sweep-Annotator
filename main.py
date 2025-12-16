@@ -221,7 +221,7 @@ def start_annotation(frame_idx: int, primitive_type_str: str) -> str:
         return f"✗ Error: {str(e)}"
 
 
-def end_annotation(frame_idx: int, overlap_frames: int) -> Tuple[pd.DataFrame, str]:
+def end_annotation(frame_idx: int) -> Tuple[pd.DataFrame, str]:
     """Complete segment annotation."""
     if app.trajectory_segmenter is None or app.primitive_annotator is None:
         return None, "✗ No annotation in progress"
@@ -251,7 +251,7 @@ def end_annotation(frame_idx: int, overlap_frames: int) -> Tuple[pd.DataFrame, s
         )
 
         # End segment
-        segment = app.trajectory_segmenter.end_segment(end_frame, primitive, int(overlap_frames))
+        segment = app.trajectory_segmenter.end_segment(end_frame, primitive)
         app.all_segments.append(segment)
 
         # Reset annotator
@@ -292,6 +292,140 @@ def undo_last_point() -> Tuple[str, str]:
         coords_text = app.primitive_annotator.to_primitive_string() if app.primitive_annotator.is_complete() else "Incomplete"
         return status, coords_text
     return "No annotation in progress", ""
+
+
+def parse_and_visualize_primitive(primitive_string: str) -> Tuple[np.ndarray, str]:
+    """
+    Parse a primitive string and visualize it on the corrected image.
+
+    Args:
+        primitive_string: String like "<Sweep> <Box> <100, 200, 800, 900> <to> <Position> <500, 500>"
+
+    Returns:
+        Tuple of (image with visualization, status message)
+    """
+    if app.video_processor is None:
+        return None, "✗ No episode loaded"
+
+    try:
+        # Parse the primitive string
+        import re
+
+        # Remove extra spaces and normalize
+        primitive_string = primitive_string.strip()
+
+        # Match pattern like <Sweep> <Box> <coords> or <Sweep> <Box> <coords> <to> <Position> <target>
+        # Extract primitive type
+        primitive_match = re.match(r'<(\w+)>\s*<(\w+)>\s*<([^>]+)>(?:\s*<to>\s*<Position>\s*<([^>]+)>)?', primitive_string)
+
+        if not primitive_match:
+            return None, "✗ Invalid primitive format. Expected: <Type> <Shape> <coords> or <Type> <Shape> <coords> <to> <Position> <target>"
+
+        action = primitive_match.group(1).lower()  # sweep, clear, refine
+        shape = primitive_match.group(2).lower()   # box, triangle, line, arc
+        coords_str = primitive_match.group(3)
+        target_str = primitive_match.group(4)
+
+        # Map to PrimitiveType
+        type_map = {
+            ('sweep', 'box'): PrimitiveType.SWEEP_BOX,
+            ('sweep', 'triangle'): PrimitiveType.SWEEP_TRIANGLE,
+            ('clear', 'box'): PrimitiveType.CLEAR_BOX,
+            ('refine', 'line'): PrimitiveType.REFINE_LINE,
+            ('refine', 'arc'): PrimitiveType.REFINE_ARC,
+        }
+
+        primitive_type = type_map.get((action, shape))
+        if not primitive_type:
+            return None, f"✗ Unknown primitive type: {action} {shape}"
+
+        # Parse coordinates (format: "100, 200, 800, 900")
+        coord_values = [int(x.strip()) for x in coords_str.split(',')]
+        if len(coord_values) % 2 != 0:
+            return None, "✗ Coordinates must be in pairs (x, y)"
+
+        coordinates = []
+        for i in range(0, len(coord_values), 2):
+            coordinates.append(Coordinate(x=coord_values[i], y=coord_values[i+1]))
+
+        # Parse target position if present
+        target_position = None
+        if target_str:
+            target_values = [int(x.strip()) for x in target_str.split(',')]
+            if len(target_values) != 2:
+                return None, "✗ Target position must be a single (x, y) pair"
+            target_position = Coordinate(x=target_values[0], y=target_values[1])
+
+        # Create a temporary PrimitiveAnnotator for visualization
+        temp_annotator = PrimitiveAnnotator(primitive_type)
+        temp_annotator.coordinates = coordinates
+        temp_annotator.target_position = target_position
+
+        # Get current corrected frame
+        current_frame = app.current_frame_index
+        corrected_image = app.video_processor.get_corrected_frame(
+            current_frame,
+            app.perspective_corrector if app.perspective_corrector.is_calibrated() else None
+        )
+
+        # Visualize the primitive
+        visualized_image = temp_annotator.visualize_annotation(
+            corrected_image,
+            app.perspective_corrector.output_size
+        )
+
+        return visualized_image, f"✓ Visualized: {primitive_string}"
+
+    except Exception as e:
+        return None, f"✗ Error parsing primitive: {str(e)}"
+
+
+def save_snapshot(dataset_path: str) -> str:
+    """
+    Save current frame as a snapshot to the dataset's snapshot directory.
+
+    Args:
+        dataset_path: Path to the dataset
+
+    Returns:
+        Status message
+    """
+    if app.video_processor is None or app.current_episode is None:
+        return "✗ No episode loaded"
+
+    try:
+        import cv2
+        from pathlib import Path
+
+        # Create snapshot directory if it doesn't exist
+        dataset_name = Path(dataset_path).name
+        snapshot_dir = Path(dataset_path) / "snapshot"
+        snapshot_dir.mkdir(exist_ok=True)
+
+        # Generate filename: snapshot-<dataset name>-<episode index>-<frame index>.png
+        episode_index = app.current_episode.episode_id
+        frame_index = app.current_frame_index
+        filename = f"snapshot-{dataset_name}-{episode_index}-{frame_index}.png"
+        filepath = snapshot_dir / filename
+
+        # Get the appropriate image (calibrated if available, otherwise original)
+        if app.perspective_corrector.is_calibrated():
+            # Get calibrated image
+            image = app.video_processor.get_corrected_frame(
+                frame_index,
+                app.perspective_corrector
+            )
+        else:
+            # Get original image
+            image = app.video_processor.get_frame(frame_index)
+
+        # Save the image (convert from RGB to BGR for OpenCV)
+        cv2.imwrite(str(filepath), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+
+        return f"✓ Snapshot saved to {filepath}"
+
+    except Exception as e:
+        return f"✗ Error saving snapshot: {str(e)}"
 
 
 def save_calibration(dataset_path: str) -> str:
@@ -561,12 +695,25 @@ with gr.Blocks(title="Sweep Annotator") as demo:
 
     with gr.Row():
         start_frame_btn = gr.Button("Mark Start Frame", variant="primary")
-        overlap_frames_input = gr.Number(label="Overlap Frames", value=0, precision=0)
+        snapshot_btn = gr.Button("Snapshot", variant="secondary")
         end_frame_btn = gr.Button("Mark End Frame & Save Segment", variant="primary")
+
+    snapshot_status = gr.Textbox(label="Snapshot Status", interactive=False)
 
     with gr.Row():
         reset_points_btn = gr.Button("Reset Points")
         undo_point_btn = gr.Button("Undo Last Point")
+
+    # Primitives Visualization Tool
+    gr.Markdown("### Primitives Visualization Tool")
+    with gr.Row():
+        primitive_input = gr.Textbox(
+            label="Primitive String",
+            placeholder="e.g., <Sweep> <Box> <100, 200, 800, 900> <to> <Position> <500, 500>",
+            scale=3
+        )
+        visualize_btn = gr.Button("Visualize", variant="secondary", scale=1)
+    primitive_viz_status = gr.Textbox(label="Visualization Status", interactive=False)
 
     gr.Markdown("## Segment List")
     segments_dataframe = gr.Dataframe(
@@ -650,9 +797,15 @@ with gr.Blocks(title="Sweep Annotator") as demo:
         outputs=[annotation_status]
     )
 
+    snapshot_btn.click(
+        fn=save_snapshot,
+        inputs=[dataset_path_input],
+        outputs=[snapshot_status]
+    )
+
     end_frame_btn.click(
         fn=end_annotation,
-        inputs=[frame_slider, overlap_frames_input],
+        inputs=[frame_slider],
         outputs=[segments_dataframe, annotation_status]
     )
 
@@ -664,6 +817,12 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     undo_point_btn.click(
         fn=undo_last_point,
         outputs=[annotation_status, coordinates_display]
+    )
+
+    visualize_btn.click(
+        fn=parse_and_visualize_primitive,
+        inputs=[primitive_input],
+        outputs=[corrected_video_display, primitive_viz_status]
     )
 
     save_calibration_btn.click(
