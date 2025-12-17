@@ -155,7 +155,7 @@ A **segment** is a portion of a trajectory (range of frames) with a single primi
 
 - **Status Display**: Shows progress like "Captured 2/4 points"
 
-- **Coordinates Display**: Shows captured coordinates in normalized format [0-1000]
+- **Coordinates Display**: Shows captured coordinates in normalized format [0-1]
 
 **Step 4: Add Target Position** (Sweep primitives only)
 - After capturing all shape points, click one more time for the target position
@@ -183,8 +183,8 @@ A **segment** is a portion of a trajectory (range of frames) with a single primi
 The Primitives Visualization Tool allows you to test and visualize primitive strings before or after annotation:
 
 1. **Enter Primitive String**: In the "Primitive String" input box, enter a correctly formatted primitive string
-   - Coordinates must be in [0, 1000] range (integers)
-   - Example: `<Sweep> <Box> <100, 200, 800, 900> <to> <Position> <500, 500>`
+   - Coordinates must be in [0, 1] range (floats with 3 decimal places)
+   - Example: `<Sweep> <Box> <0.447, 0.893, 0.804, 0.893> <to> <Position> <0.500, 0.500>`
 
 2. **Click "Visualize"**: The primitive will be visualized on the corrected video display
    - Shows the same visual representation as during annotation (points, lines, boxes, etc.)
@@ -193,11 +193,11 @@ The Primitives Visualization Tool allows you to test and visualize primitive str
 3. **Status Message**: Shows whether visualization succeeded or if there were errors in the format
 
 **Supported Formats:**
-- `<Sweep> <Box> <x1, y1, x2, y2, x3, y3, x4, y4> <to> <Position> <xt, yt>`
-- `<Sweep> <Triangle> <x1, y1, x2, y2, x3, y3> <to> <Position> <xt, yt>`
-- `<Clear> <Box> <x1, y1, x2, y2, x3, y3, x4, y4>`
-- `<Refine> <Line> <x1, y1, x2, y2>`
-- `<Refine> <Arc> <x1, y1, x2, y2, x3, y3>`
+- `<Sweep> <Box> <x1, y1, x2, y2, x3, y3, x4, y4> <to> <Position> <xt, yt>` (coordinates in [0, 1] range)
+- `<Sweep> <Triangle> <x1, y1, x2, y2, x3, y3> <to> <Position> <xt, yt>` (coordinates in [0, 1] range)
+- `<Clear> <Box> <x1, y1, x2, y2, x3, y3, x4, y4>` (coordinates in [0, 1] range)
+- `<Refine> <Line> <x1, y1, x2, y2>` (coordinates in [0, 1] range)
+- `<Refine> <Arc> <x1, y1, x2, y2, x3, y3>` (coordinates in [0, 1] range)
 
 #### Snapshot Feature
 
@@ -223,14 +223,14 @@ The Snapshot feature allows you to save individual frames as images:
 
 #### Coordinate Format
 
-Coordinates are stored in normalized format [0-1000] (integers) and displayed as:
+Coordinates are stored in normalized format [0, 1] (floats with 3 decimal places) and displayed as:
 ```
 <Primitive> <Shape> <x1, y1, x2, y2, ...> <to> <Position> <xt, yt>
 ```
 
 Example:
 ```
-<Sweep> <Box> <100, 200, 300, 200, 300, 400, 100, 400> <to> <Position> <500, 500>
+<Sweep> <Box> <0.447, 0.893, 0.804, 0.893, 0.804, 0.179, 0.447, 0.179> <to> <Position> <0.500, 0.500>
 ```
 
 ### 4. Managing Segments
@@ -352,7 +352,7 @@ output_path/
    - Phase 1: Collects all unique tasks and creates task_index mapping
    - Phase 2: Exports segments in parallel with correct task_index values
 
-2. **Task Format**: The `tasks` field in `episodes.jsonl` contains the complete primitive string representation (e.g., `["<Sweep> <Box> <0.549, 0.446, 0.737, 0.549> <to> <Position> <0.893, 0.549>"]`). Each unique primitive string is treated as a separate task in `tasks.jsonl`.
+2. **Task Format**: The `tasks` field in `episodes.jsonl` contains the complete primitive string representation (e.g., `["<Sweep> <Box> <0.447, 0.893, 0.804, 0.893> <to> <Position> <0.500, 0.500>"]`). Each unique primitive string is treated as a separate task in `tasks.jsonl`.
 
 3. **Parallel Export**: The export process uses multiprocessing (default: 8 workers) to speed up video encoding and data processing. You can adjust the number of workers by modifying the `num_workers` parameter in the export function.
 
@@ -484,8 +484,8 @@ The export process follows a two-phase architecture to ensure correct `task_inde
 - The index maps to the task definition in `meta/tasks.jsonl`
 
 **Task Definition:**
-- In `tasks.jsonl`: `{"task_index": 0, "task": "<Sweep> <Box> <0.549, 0.446, ...>"}`
-- In `episodes.jsonl`: `{"episode_index": 0, "tasks": ["<Sweep> <Box> <0.549, 0.446, ...>"], "length": 123}`
+- In `tasks.jsonl`: `{"task_index": 0, "task": "<Sweep> <Box> <0.447, 0.893, ...>"}`
+- In `episodes.jsonl`: `{"episode_index": 0, "tasks": ["<Sweep> <Box> <0.447, 0.893, ...>"], "length": 123}`
 - The task string includes the full primitive specification with coordinates
 
 ### Data Processing Pipeline
@@ -582,27 +582,29 @@ python verify_task_index.py /path/to/exported/dataset
 4. **Refine Line**: `<Refine> <Line> <x1,y1, x2,y2>`
 5. **Refine Arc**: `<Refine> <Arc> <x1,y1, x2,y2, x3,y3>`
 
-All coordinates are normalized to [0, 1000] range (integers).
+All coordinates are normalized to [0, 1] range (floats with 3 decimal places).
 
 ## Changelog
 
-### Version 2.0 (Current)
+### Version 2.1 (Current)
 
 **Breaking Changes:**
-- **Coordinate Normalization**: Changed from [0, 1] float to [0, 1000] integer format
-  - Provides the same precision but uses integers instead of floats
-  - All existing annotations need to be re-annotated or converted
-  - Affects all primitive strings and coordinate storage
+- **Coordinate Normalization Reverted**: Changed back from [0, 1000] integer to [0, 1] float format
+  - Coordinates are now stored as floats with 3 decimal places (e.g., 0.447, 0.893)
+  - Maintains the same effective precision as Version 1.0
+  - All Version 2.0 annotations need to be re-annotated or converted
+  - Affects all primitive strings, coordinate storage, and visualization
 
-**Removed Features:**
-- **Overlap Frames**: Removed the "Overlap Frames" input and functionality
-  - Segments no longer support overlapping frame ranges
-  - Simplified segment model and export process
+**Key Changes from Version 2.0:**
+- All coordinate handling functions updated to use [0, 1] normalization
+- Primitive strings now display float coordinates with 3 decimal places
+- Updated coordinate utilities, visualization, and export logic
+- Updated documentation to reflect float coordinate format
 
-**New Features:**
+**Features (Inherited from Version 2.0):**
 - **Primitives Visualization Tool**: Interactive tool to visualize primitive strings
   - Located between annotation controls and segment list
-  - Supports all primitive types with [0, 1000] coordinate format
+  - Supports all primitive types with [0, 1] coordinate format
   - Provides real-time visual feedback for testing primitive strings
   - Useful for debugging and verifying annotations
 
@@ -613,11 +615,28 @@ All coordinates are normalized to [0, 1000] range (integers).
   - Automatically uses calibrated image if calibration is applied
   - Useful for documentation and reference
 
+- **No Overlap Frames**: Overlap Frames feature remains removed from Version 2.0
+  - Segments do not support overlapping frame ranges
+  - Simplified segment model and export process
+
 **Improvements:**
-- Updated coordinate display to show integer values
-- Cleaner UI layout with reorganized annotation controls
-- Better precision handling in coordinate transformations
-- Improved documentation with detailed examples for new features
+- Consistent coordinate representation matching original Version 1.0 format
+- Improved precision with explicit 3-decimal place formatting
+- Updated all documentation with correct coordinate examples
+- Better compatibility with standard normalized coordinate conventions
+
+### Version 2.0
+
+**Breaking Changes:**
+- **Coordinate Normalization**: Changed from [0, 1] float to [0, 1000] integer format
+  - NOTE: This was reverted in Version 2.1
+
+**Removed Features:**
+- **Overlap Frames**: Removed the "Overlap Frames" input and functionality
+
+**New Features:**
+- **Primitives Visualization Tool**: Interactive tool to visualize primitive strings
+- **Snapshot Feature**: Save individual frames as images
 
 ### Version 1.1
 

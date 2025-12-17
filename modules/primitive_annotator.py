@@ -45,7 +45,7 @@ class PrimitiveAnnotator:
         Add clicked coordinate.
 
         Args:
-            x, y: Normalized coordinates [0, 1] in corrected image
+            x, y: Normalized coordinates [0, 1] in corrected image (floats with 3 decimal places)
             is_target: Whether this is target position for sweep
         """
         coord = Coordinate(x, y)
@@ -86,12 +86,12 @@ class PrimitiveAnnotator:
         primitive_name = self.primitive_type.value.split('_')[0].capitalize()
         shape_name = self.primitive_type.value.split('_')[1].capitalize() if '_' in self.primitive_type.value else ""
 
-        # Format coordinates as integers
-        coord_strs = [f"{c.x}, {c.y}" for c in self.coordinates]
+        # Format coordinates as floats with 3 decimal places
+        coord_strs = [f"{c.x:.3f}, {c.y:.3f}" for c in self.coordinates]
         coord_part = f"<{', '.join(coord_strs)}>"
 
         if self.target_position:
-            return f"<{primitive_name}> <{shape_name}> {coord_part} <to> <Position> <{self.target_position.x}, {self.target_position.y}>"
+            return f"<{primitive_name}> <{shape_name}> {coord_part} <to> <Position> <{self.target_position.x:.3f}, {self.target_position.y:.3f}>"
         else:
             return f"<{primitive_name}> <{shape_name}> {coord_part}"
 
@@ -112,8 +112,8 @@ class PrimitiveAnnotator:
         if len(self.coordinates) == 0:
             return overlay
 
-        # Convert normalized [0, 1000] coordinates to pixel coordinates
-        pixel_coords = [(int((c.x / 1000) * width), int((c.y / 1000) * height)) for c in self.coordinates]
+        # Convert normalized [0, 1] coordinates to pixel coordinates
+        pixel_coords = [(int(c.x * width), int(c.y * height)) for c in self.coordinates]
 
         # Draw based on primitive type
         if self.primitive_type == PrimitiveType.SWEEP_BOX or self.primitive_type == PrimitiveType.CLEAR_BOX:
@@ -153,7 +153,7 @@ class PrimitiveAnnotator:
 
         # Draw target position if applicable
         if self.target_position:
-            target_pixel = (int((self.target_position.x / 1000) * width), int((self.target_position.y / 1000) * height))
+            target_pixel = (int(self.target_position.x * width), int(self.target_position.y * height))
             cv2.circle(overlay, target_pixel, 8, (255, 0, 255), 2)
             cv2.circle(overlay, target_pixel, 3, (255, 0, 255), -1)
             # Draw arrow from shape to target

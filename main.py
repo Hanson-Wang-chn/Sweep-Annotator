@@ -294,17 +294,18 @@ def undo_last_point() -> Tuple[str, str]:
     return "No annotation in progress", ""
 
 
-def parse_and_visualize_primitive(primitive_string: str) -> Tuple[np.ndarray, str]:
+def parse_and_visualize_primitive(primitive_string: str, frame_idx: int) -> Tuple[np.ndarray, str]:
     """
     Parse a primitive string and visualize it on the corrected image.
 
     Args:
-        primitive_string: String like "<Sweep> <Box> <100, 200, 800, 900> <to> <Position> <500, 500>"
+        primitive_string: String like "<Sweep> <Box> <0.447, 0.893, 0.804, 0.893> <to> <Position> <0.500, 0.500>"
+        frame_idx: Current frame index
 
     Returns:
         Tuple of (image with visualization, status message)
     """
-    if app.video_processor is None:
+    if not app.video_processors or "main" not in app.video_processors:
         return None, "✗ No episode loaded"
 
     try:
@@ -339,8 +340,8 @@ def parse_and_visualize_primitive(primitive_string: str) -> Tuple[np.ndarray, st
         if not primitive_type:
             return None, f"✗ Unknown primitive type: {action} {shape}"
 
-        # Parse coordinates (format: "100, 200, 800, 900")
-        coord_values = [int(x.strip()) for x in coords_str.split(',')]
+        # Parse coordinates (format: "0.447, 0.893, 0.804, 0.893")
+        coord_values = [float(x.strip()) for x in coords_str.split(',')]
         if len(coord_values) % 2 != 0:
             return None, "✗ Coordinates must be in pairs (x, y)"
 
@@ -351,7 +352,7 @@ def parse_and_visualize_primitive(primitive_string: str) -> Tuple[np.ndarray, st
         # Parse target position if present
         target_position = None
         if target_str:
-            target_values = [int(x.strip()) for x in target_str.split(',')]
+            target_values = [float(x.strip()) for x in target_str.split(',')]
             if len(target_values) != 2:
                 return None, "✗ Target position must be a single (x, y) pair"
             target_position = Coordinate(x=target_values[0], y=target_values[1])
@@ -362,11 +363,8 @@ def parse_and_visualize_primitive(primitive_string: str) -> Tuple[np.ndarray, st
         temp_annotator.target_position = target_position
 
         # Get current corrected frame
-        current_frame = app.current_frame_index
-        corrected_image = app.video_processor.get_corrected_frame(
-            current_frame,
-            app.perspective_corrector if app.perspective_corrector.is_calibrated() else None
-        )
+        original_frame = app.video_processors["main"].get_frame(int(frame_idx))
+        corrected_image = app.perspective_corrector.correct_image(original_frame) if app.perspective_corrector.is_calibrated() else original_frame
 
         # Visualize the primitive
         visualized_image = temp_annotator.visualize_annotation(
@@ -380,17 +378,18 @@ def parse_and_visualize_primitive(primitive_string: str) -> Tuple[np.ndarray, st
         return None, f"✗ Error parsing primitive: {str(e)}"
 
 
-def save_snapshot(dataset_path: str) -> str:
+def save_snapshot(dataset_path: str, frame_idx: int) -> str:
     """
     Save current frame as a snapshot to the dataset's snapshot directory.
 
     Args:
         dataset_path: Path to the dataset
+        frame_idx: Current frame index
 
     Returns:
         Status message
     """
-    if app.video_processor is None or app.current_episode is None:
+    if not app.video_processors or "main" not in app.video_processors or app.current_episode is None:
         return "✗ No episode loaded"
 
     try:
@@ -404,20 +403,17 @@ def save_snapshot(dataset_path: str) -> str:
 
         # Generate filename: snapshot-<dataset name>-<episode index>-<frame index>.png
         episode_index = app.current_episode.episode_id
-        frame_index = app.current_frame_index
-        filename = f"snapshot-{dataset_name}-{episode_index}-{frame_index}.png"
+        filename = f"snapshot-{dataset_name}-{episode_index}-{int(frame_idx)}.png"
         filepath = snapshot_dir / filename
 
         # Get the appropriate image (calibrated if available, otherwise original)
         if app.perspective_corrector.is_calibrated():
             # Get calibrated image
-            image = app.video_processor.get_corrected_frame(
-                frame_index,
-                app.perspective_corrector
-            )
+            original_frame = app.video_processors["main"].get_frame(int(frame_idx))
+            image = app.perspective_corrector.correct_image(original_frame)
         else:
             # Get original image
-            image = app.video_processor.get_frame(frame_index)
+            image = app.video_processors["main"].get_frame(int(frame_idx))
 
         # Save the image (convert from RGB to BGR for OpenCV)
         cv2.imwrite(str(filepath), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
@@ -709,7 +705,7 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     with gr.Row():
         primitive_input = gr.Textbox(
             label="Primitive String",
-            placeholder="e.g., <Sweep> <Box> <100, 200, 800, 900> <to> <Position> <500, 500>",
+            placeholder="e.g., <Sweep> <Box> <0.518, 0.634, 0.741, 0.750> <to> <Position> <0.902, 0.719>",
             scale=3
         )
         visualize_btn = gr.Button("Visualize", variant="secondary", scale=1)
@@ -799,7 +795,7 @@ with gr.Blocks(title="Sweep Annotator") as demo:
 
     snapshot_btn.click(
         fn=save_snapshot,
-        inputs=[dataset_path_input],
+        inputs=[dataset_path_input, frame_slider],
         outputs=[snapshot_status]
     )
 
@@ -821,7 +817,7 @@ with gr.Blocks(title="Sweep Annotator") as demo:
 
     visualize_btn.click(
         fn=parse_and_visualize_primitive,
-        inputs=[primitive_input],
+        inputs=[primitive_input, frame_slider],
         outputs=[corrected_video_display, primitive_viz_status]
     )
 

@@ -17,26 +17,26 @@ class PrimitiveType(Enum):
 @dataclass
 class Coordinate:
     """2D coordinate in image space."""
-    x: int  # Normalized [0, 1000] coordinates (integers)
-    y: int
+    x: float  # Normalized [0, 1] coordinates (floats with 3 decimal places)
+    y: float
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
-        return {"x": self.x, "y": self.y}
+        return {"x": round(self.x, 3), "y": round(self.y, 3)}
 
-    def to_list(self) -> List[int]:
+    def to_list(self) -> List[float]:
         """Convert to list [x, y]."""
-        return [self.x, self.y]
+        return [round(self.x, 3), round(self.y, 3)]
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Coordinate':
         """Create from dictionary."""
-        return cls(x=int(data["x"]), y=int(data["y"]))
+        return cls(x=float(data["x"]), y=float(data["y"]))
 
     @classmethod
     def from_list(cls, data: List) -> 'Coordinate':
         """Create from list [x, y]."""
-        return cls(x=int(data[0]), y=int(data[1]))
+        return cls(x=float(data[0]), y=float(data[1]))
 
 
 @dataclass
@@ -59,12 +59,12 @@ class PrimitiveAnnotation:
         primitive_name = self.primitive_type.value.split('_')[0].capitalize()
         shape_name = self.primitive_type.value.split('_')[1].capitalize() if '_' in self.primitive_type.value else ""
 
-        # Format coordinates as integers
-        coord_strs = [f"{c.x}, {c.y}" for c in self.coordinates]
+        # Format coordinates as floats with 3 decimal places
+        coord_strs = [f"{c.x:.3f}, {c.y:.3f}" for c in self.coordinates]
         coord_part = f"<{', '.join(coord_strs)}>"
 
         if self.target_position:
-            return f"<{primitive_name}> <{shape_name}> {coord_part} <to> <Position> <{self.target_position.x}, {self.target_position.y}>"
+            return f"<{primitive_name}> <{shape_name}> {coord_part} <to> <Position> <{self.target_position.x:.3f}, {self.target_position.y:.3f}>"
         else:
             return f"<{primitive_name}> <{shape_name}> {coord_part}"
 
