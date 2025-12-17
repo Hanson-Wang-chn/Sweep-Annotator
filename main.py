@@ -520,8 +520,13 @@ def load_annotations(dataset_path: str) -> Tuple[pd.DataFrame, str]:
         return None, f"✗ Error loading annotations: {str(e)}"
 
 
-def export_dataset(output_path: str) -> str:
-    """Export annotated dataset."""
+def export_dataset(output_path: str, export_mode: str) -> str:
+    """Export annotated dataset.
+
+    Args:
+        output_path: Path to export the dataset
+        export_mode: Either "Original" or "Masked"
+    """
     if not app.all_segments:
         return "✗ No segments to export"
 
@@ -552,15 +557,20 @@ def export_dataset(output_path: str) -> str:
         def progress_callback(current, total, message):
             print(f"[{current}/{total}] {message}")
 
+        # Set export mode
+        use_masked = (export_mode == "Masked")
+
         exporter.export_all_segments(
             app.all_segments,
             app.episode_data_cache,
             app.episode_video_processors_cache,
             app.perspective_corrector,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            masked_export=use_masked
         )
 
-        return f"✓ Successfully exported {len(app.all_segments)} segments to {output_path}"
+        mode_str = "with primitive visualizations" if use_masked else "without visualizations"
+        return f"✓ Successfully exported {len(app.all_segments)} segments to {output_path} ({mode_str})"
     except Exception as e:
         return f"✗ Error exporting dataset: {str(e)}"
 
@@ -747,6 +757,12 @@ with gr.Blocks(title="Sweep Annotator") as demo:
     gr.Markdown("## Export")
     with gr.Row():
         output_path_input = gr.Textbox(label="Output Path", placeholder="/path/to/output/dataset", scale=3)
+        export_mode_dropdown = gr.Dropdown(
+            label="Export Mode",
+            choices=["Original", "Masked"],
+            value="Original",
+            scale=1
+        )
         export_btn = gr.Button("Export Annotated Dataset", scale=1)
 
     export_status = gr.Textbox(label="Export Status", interactive=False)
@@ -835,7 +851,7 @@ with gr.Blocks(title="Sweep Annotator") as demo:
 
     export_btn.click(
         fn=export_dataset,
-        inputs=[output_path_input],
+        inputs=[output_path_input, export_mode_dropdown],
         outputs=[export_status]
     )
 

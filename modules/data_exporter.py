@@ -239,7 +239,8 @@ class LeRobotExporter:
                           video_processor_map: Dict[int, Dict[str, VideoProcessor]],
                           perspective_corrector: PerspectiveCorrector,
                           progress_callback=None,
-                          num_workers: int = 8) -> List[Dict]:
+                          num_workers: int = 8,
+                          masked_export: bool = False) -> List[Dict]:
         """
         Export all segments as new dataset using multiprocessing.
 
@@ -250,6 +251,7 @@ class LeRobotExporter:
             perspective_corrector: Perspective corrector for main camera
             progress_callback: Optional callback for progress updates
             num_workers: Number of parallel processes to use (default: 8)
+            masked_export: If True, render primitives on main camera frames
 
         Returns:
             List of episode metadata dicts
@@ -297,7 +299,8 @@ class LeRobotExporter:
                 'new_episode_id': idx,
                 'task_index': task_index,  # Pass the correct task_index
                 'output_path': str(self.output_path),
-                'original_metadata': self.original_metadata
+                'original_metadata': self.original_metadata,
+                'masked_export': masked_export
             })
 
         # Use ProcessPoolExecutor for parallel processing
@@ -404,6 +407,7 @@ def _export_segment_worker(args: Dict) -> Dict:
     from pathlib import Path
     from modules.video_processor import VideoProcessor
     from modules.perspective_corrector import PerspectiveCorrector
+    from modules.primitive_annotator import PrimitiveAnnotator
 
     # Unpack arguments
     segment = args['segment']
@@ -414,6 +418,7 @@ def _export_segment_worker(args: Dict) -> Dict:
     task_index = args['task_index']  # Get the correct task_index
     output_path = Path(args['output_path'])
     original_metadata = args['original_metadata']
+    masked_export = args.get('masked_export', False)
 
     # Reconstruct perspective corrector
     perspective_corrector = PerspectiveCorrector(output_size=tuple(perspective_data['output_size']))
@@ -452,6 +457,13 @@ def _export_segment_worker(args: Dict) -> Dict:
     parquet_path = output_path / "data" / "chunk-000" / f"episode_{new_episode_id:06d}.parquet"
     segment_data.to_parquet(parquet_path, index=False)
 
+    # Create primitive annotator for masked export if needed
+    primitive_annotator = None
+    if masked_export:
+        primitive_annotator = PrimitiveAnnotator(segment.primitive.primitive_type)
+        primitive_annotator.coordinates = segment.primitive.coordinates.copy()
+        primitive_annotator.target_position = segment.primitive.target_position
+
     # Export video segments for all cameras
     for camera_name, video_processor in video_processor_map.items():
         video_output_path = (
@@ -461,8 +473,15 @@ def _export_segment_worker(args: Dict) -> Dict:
 
         if camera_name == "main" and perspective_corrector.is_calibrated():
             # Apply perspective correction to main camera
-            def transform_fn(frame):
-                return perspective_corrector.correct_image(frame, perspective_corrector.output_size)
+            # For masked export, also visualize the primitive on each frame
+            if masked_export and primitive_annotator:
+                def transform_fn(frame):
+                    corrected = perspective_corrector.correct_image(frame, perspective_corrector.output_size)
+                    # Render primitive on the corrected frame
+                    return primitive_annotator.visualize_annotation(corrected, perspective_corrector.output_size)
+            else:
+                def transform_fn(frame):
+                    return perspective_corrector.correct_image(frame, perspective_corrector.output_size)
 
             video_processor.export_segment(
                 segment.start_frame,
@@ -470,6 +489,19 @@ def _export_segment_worker(args: Dict) -> Dict:
                 str(video_output_path),
                 transform_fn=transform_fn,
                 output_size=perspective_corrector.output_size
+            )
+        elif camera_name == "main" and masked_export and primitive_annotator:
+            # No calibration, but still need to visualize primitive
+            def transform_fn(frame):
+                # Get original frame size for visualization
+                h, w = frame.shape[:2]
+                return primitive_annotator.visualize_annotation(frame, (w, h))
+
+            video_processor.export_segment(
+                segment.start_frame,
+                segment.end_frame,
+                str(video_output_path),
+                transform_fn=transform_fn
             )
         else:
             # For wrist cameras, just extract segment without transformation

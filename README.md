@@ -304,7 +304,15 @@ After completing annotations, export the processed dataset.
 1. **Enter Output Path**: Specify where to save the exported dataset
    - Example: `/path/to/output/annotated_dataset`
 
-2. **Click "Export Annotated Dataset"**
+2. **Select Export Mode**: Choose between "Original" or "Masked"
+   - **Original**: Export videos as-is (with perspective correction if calibrated)
+   - **Masked**: Export videos with primitives visualized on each frame of the main camera
+     - Primitives are rendered directly onto video frames
+     - Green overlays show boxes, triangles, or lines
+     - Purple/magenta markers indicate target positions
+     - Visualization matches what you see in the "Visualize" tool
+
+3. **Click "Export Annotated Dataset"**
 
 **Verifying Export:**
 
@@ -586,7 +594,28 @@ All coordinates are normalized to [0, 1] range (floats with 3 decimal places).
 
 ## Changelog
 
-### Version 2.1 (Current)
+### Version 2.2 (Current)
+
+**New Features:**
+- **Masked Export Mode**: Export datasets with primitive visualizations rendered on video frames
+  - Added "Export Mode" dropdown in the Export section with "Original" and "Masked" options
+  - When "Masked" mode is selected, primitives are drawn on each frame of the main camera video
+  - Visualization includes:
+    - Shape outlines (boxes, triangles, lines, arcs) in green
+    - Target position markers in purple/magenta (for Sweep primitives)
+    - Arrows connecting shapes to targets
+  - Works with both calibrated (perspective-corrected) and uncalibrated videos
+  - Other camera views (wrist cameras) remain unchanged
+  - Enables visual verification of primitives in exported videos
+
+**Technical Details:**
+- Modified `export_dataset()` function in `main.py` to accept export mode parameter
+- Updated `export_all_segments()` in `modules/data_exporter.py` to support `masked_export` parameter
+- Enhanced `_export_segment_worker()` to render primitives on main camera frames using `PrimitiveAnnotator`
+- Primitive rendering uses the same visualization logic as the interactive annotation tool
+- All frames in a segment show the same primitive annotation consistently
+
+### Version 2.1
 
 **Breaking Changes:**
 - **Coordinate Normalization Reverted**: Changed back from [0, 1000] integer to [0, 1] float format
