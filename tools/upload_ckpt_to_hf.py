@@ -4,14 +4,14 @@ Script to upload trained checkpoint directory to Hugging Face Hub.
 
 Typical usage (uploading a DiffusionPolicy / ACT pretrained_model folder):
 
-    python ../utils/upload_ckpt_to_hf.py \
+    python upload_ckpt_to_hf.py \
         --repo_id Anlorla/pi05_push_block_dual_full\
         --ckpt_dir /home/jovyan/workspace/openpi/checkpoints/pi05_npm/push_block_dual/7999 \
         --repo_type model 
 
-      python ../utils/upload_ckpt_to_hf.py \
-      --repo_id Anlorla/push_block_dual_lerobot21 \
-      --ckpt_dir ~/.cache/huggingface/lerobot/zeno/push_block_dual\
+      python upload_ckpt_to_hf.py \
+      --repo_id Anlorla/sweep2cross_lerobot21_prim_enriched \
+      --ckpt_dir /Users/wanghaisheng/Downloads/sweep2cross_lerobot21_prim_enriched \
       --repo_type dataset 
 
 Notes:
